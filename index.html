@@ -13,8 +13,8 @@
     --border:#e8e6df;
     --text:#2b2924;
     --text-soft:#7a7669;
-    --accent:#c2683f;
-    --accent-soft:#f1e2d8;
+    --accent:#1e3a5f;
+    --accent-soft:#dde6ef;
     --hover:#f1efe9;
     --active:#ece9e1;
     --danger:#c0392b;
@@ -59,7 +59,13 @@
     font-weight:600;
     font-size:15px;
     color:var(--accent);
-    padding:6px 8px 14px 8px;
+    padding:6px 8px 2px 8px;
+  }
+
+  .brand-sub{
+    font-size:11px;
+    color:var(--text-soft);
+    padding:0 8px 14px 26px;
   }
 
   .brand .dot{
@@ -148,6 +154,48 @@
     color:var(--text-soft);
   }
 
+  .user-footer{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    padding:12px 14px;
+    border-top:1px solid var(--border);
+    cursor:default;
+  }
+
+  .user-avatar{
+    width:30px;height:30px;
+    border-radius:50%;
+    background:var(--accent-soft);
+    color:var(--accent);
+    display:flex;align-items:center;justify-content:center;
+    font-size:13px;
+    font-weight:600;
+    flex-shrink:0;
+  }
+
+  .user-name{
+    flex:1;
+    font-size:13.5px;
+    font-weight:500;
+    color:var(--text);
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+  }
+
+  .settings-btn{
+    background:none;
+    border:none;
+    color:var(--text-soft);
+    cursor:pointer;
+    padding:6px;
+    border-radius:7px;
+    display:flex;
+    flex-shrink:0;
+  }
+  .settings-btn:hover{ background:var(--hover); color:var(--text); }
+
   /* ---------- MAIN ---------- */
   .main{
     flex:1;
@@ -166,6 +214,37 @@
     font-size:14px;
     color:var(--text-soft);
   }
+
+  .topbar-title{
+    cursor:pointer;
+    padding:3px 6px;
+    border-radius:6px;
+    color:var(--text);
+    font-weight:500;
+  }
+  .topbar-title:hover{ background:var(--hover); }
+
+  .topbar-title-input{
+    font:inherit;
+    font-weight:500;
+    color:var(--text);
+    border:1px solid var(--accent);
+    border-radius:6px;
+    padding:2px 6px;
+    outline:none;
+    min-width:180px;
+  }
+
+  .rename-btn{
+    background:none;
+    border:none;
+    color:var(--text-soft);
+    cursor:pointer;
+    padding:5px;
+    border-radius:6px;
+    display:flex;
+  }
+  .rename-btn:hover{ background:var(--hover); color:var(--text); }
 
   .menu-toggle{
     display:none;
@@ -429,7 +508,8 @@
 
   <aside class="sidebar" id="sidebar">
     <div class="sidebar-header">
-      <div class="brand"><span class="dot"></span> Meu Chatbot</div>
+      <div class="brand"><span class="dot"></span> ISA</div>
+      <div class="brand-sub">Inteligência de Suporte ao Atendimento</div>
       <button class="new-chat-btn" id="newChatBtn">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
         Nova conversa
@@ -441,7 +521,13 @@
       <!-- itens inseridos via JS -->
     </div>
 
-    <div class="sidebar-footer">Suas conversas ficam salvas nesta sessão.</div>
+    <div class="user-footer" id="userFooter">
+      <div class="user-avatar" id="userAvatar">R</div>
+      <div class="user-name" id="userName">Rick</div>
+      <button class="settings-btn" id="settingsBtn" title="Configurações">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      </button>
+    </div>
   </aside>
 
   <main class="main">
@@ -449,7 +535,11 @@
       <button class="menu-toggle" id="menuToggle">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
       </button>
-      <span id="topbarTitle">Nova conversa</span>
+      <span id="topbarTitle" class="topbar-title" title="Clique para renomear">Nova conversa</span>
+      <input type="text" id="topbarTitleInput" class="topbar-title-input" style="display:none;">
+      <button class="rename-btn" id="renameBtn" title="Renomear conversa">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
+      </button>
     </div>
 
     <div class="chat-area" id="chatArea">
@@ -484,7 +574,7 @@
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>
         </button>
       </div>
-      <div class="composer-hint">Este é um protótipo de layout — as respostas ainda não vêm de uma IA real.</div>
+      <div class="composer-hint">A ISA pode cometer erros. Sempre verifique as respostas.</div>
     </div>
   </main>
 
@@ -510,6 +600,9 @@
   const greetingTitle = document.getElementById('greetingTitle');
   const messagesEl = document.getElementById('messages');
   const topbarTitle = document.getElementById('topbarTitle');
+  const topbarTitleInput = document.getElementById('topbarTitleInput');
+  const renameBtn = document.getElementById('renameBtn');
+  const settingsBtn = document.getElementById('settingsBtn');
   const chatArea = document.getElementById('chatArea');
 
   const messageInput = document.getElementById('messageInput');
@@ -631,7 +724,7 @@
     if (msg.role !== 'user'){
       const avatar = document.createElement('div');
       avatar.className = 'msg-avatar';
-      avatar.textContent = 'B';
+      avatar.textContent = 'I';
       row.appendChild(avatar);
     }
 
@@ -726,7 +819,7 @@
     const row = document.createElement('div');
     row.className = 'msg-row bot';
     row.id = 'typingRow';
-    row.innerHTML = '<div class="msg-avatar">B</div><div class="msg-bubble"><div class="typing-dots"><span></span><span></span><span></span></div></div>';
+    row.innerHTML = '<div class="msg-avatar">I</div><div class="msg-bubble"><div class="typing-dots"><span></span><span></span><span></span></div></div>';
     messagesEl.appendChild(row);
     chatArea.scrollTop = chatArea.scrollHeight;
   }
@@ -794,6 +887,43 @@
       micBtn.classList.remove('recording');
       micBtn.title = 'Gravar áudio';
     }
+  });
+
+  // ---------- renomear conversa pelo título do topo ----------
+  function startRenaming(){
+    const conv = getActive();
+    if (!conv) return;
+    topbarTitleInput.value = topbarTitle.textContent;
+    topbarTitle.style.display = 'none';
+    topbarTitleInput.style.display = 'inline-block';
+    topbarTitleInput.focus();
+    topbarTitleInput.select();
+  }
+
+  function finishRenaming(){
+    const conv = getActive();
+    topbarTitleInput.style.display = 'none';
+    topbarTitle.style.display = 'inline-block';
+    if (!conv) return;
+    const newTitle = topbarTitleInput.value.trim();
+    if (newTitle){
+      conv.title = newTitle.slice(0, 60);
+      topbarTitle.textContent = conv.title;
+      renderConversationList();
+    }
+  }
+
+  topbarTitle.addEventListener('click', startRenaming);
+  renameBtn.addEventListener('click', startRenaming);
+  topbarTitleInput.addEventListener('blur', finishRenaming);
+  topbarTitleInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter'){ e.preventDefault(); topbarTitleInput.blur(); }
+    if (e.key === 'Escape'){ topbarTitleInput.value = topbarTitle.textContent; topbarTitleInput.blur(); }
+  });
+
+  // ---------- configurações (placeholder até existir login) ----------
+  settingsBtn.addEventListener('click', () => {
+    alert('Configurações e login chegam em uma próxima etapa.');
   });
 
   // ---------- início ----------
