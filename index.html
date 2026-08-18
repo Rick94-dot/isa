@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Chatbot</title>
+<title>ISA</title>
 <style>
   :root{
     --bg-sidebar:#faf9f6;
@@ -45,11 +45,18 @@
     border-right:1px solid var(--border);
     display:flex;
     flex-direction:column;
-    transition:margin-left .25s ease;
+    transition:margin-left .22s ease;
   }
 
   .sidebar-header{
     padding:16px 14px 10px 14px;
+  }
+
+  .brand-row{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    padding:2px 4px 2px 8px;
   }
 
   .brand{
@@ -59,7 +66,6 @@
     font-weight:600;
     font-size:15px;
     color:var(--accent);
-    padding:6px 8px 2px 8px;
   }
 
   .brand-sub{
@@ -73,6 +79,20 @@
     background:var(--accent);
     display:inline-block;
   }
+
+  .sidebar-icon-btn{
+    background:none;
+    border:none;
+    color:var(--text-soft);
+    cursor:pointer;
+    padding:6px;
+    border-radius:7px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    flex-shrink:0;
+  }
+  .sidebar-icon-btn:hover{ background:var(--hover); color:var(--text); }
 
   .new-chat-btn{
     display:flex;
@@ -88,6 +108,7 @@
     font-weight:500;
     cursor:pointer;
     transition:filter .15s ease;
+    margin-top:10px;
   }
   .new-chat-btn:hover{ filter:brightness(1.06); }
   .new-chat-btn svg{ flex-shrink:0; }
@@ -161,13 +182,6 @@
     padding:14px 16px;
   }
 
-  .sidebar-footer{
-    padding:12px 16px;
-    border-top:1px solid var(--border);
-    font-size:12px;
-    color:var(--text-soft);
-  }
-
   .user-footer{
     display:flex;
     align-items:center;
@@ -186,6 +200,9 @@
     font-size:13px;
     font-weight:600;
     flex-shrink:0;
+    background-size:cover;
+    background-position:center;
+    overflow:hidden;
   }
 
   .user-name{
@@ -209,6 +226,34 @@
     flex-shrink:0;
   }
   .settings-btn:hover{ background:var(--hover); color:var(--text); }
+
+  /* ---------- SIDEBAR COLLAPSE (desktop) ---------- */
+  .expand-btn{
+    display:none;
+    position:fixed;
+    top:14px;
+    left:14px;
+    z-index:25;
+    width:34px;height:34px;
+    border-radius:9px;
+    background:#fff;
+    border:1px solid var(--border);
+    box-shadow:0 1px 4px rgba(0,0,0,.08);
+    align-items:center;
+    justify-content:center;
+    cursor:pointer;
+    color:var(--text-soft);
+  }
+  .expand-btn:hover{ background:var(--hover); color:var(--text); }
+
+  @media (min-width:821px){
+    .app.sidebar-collapsed .sidebar{
+      margin-left:calc(-1 * var(--sidebar-w));
+    }
+    .app.sidebar-collapsed .expand-btn{
+      display:flex;
+    }
+  }
 
   /* ---------- MAIN ---------- */
   .main{
@@ -458,6 +503,62 @@
   }
   .send-btn:disabled:hover{ background:#e5e2da; }
 
+  .model-select-wrap{
+    position:relative;
+    flex-shrink:0;
+  }
+
+  .model-pill{
+    display:flex;
+    align-items:center;
+    gap:5px;
+    height:34px;
+    padding:0 10px;
+    border-radius:17px;
+    border:1px solid var(--border);
+    background:#fff;
+    color:var(--text-soft);
+    font-size:12.5px;
+    font-weight:500;
+    cursor:pointer;
+    white-space:nowrap;
+  }
+  .model-pill:hover{ background:var(--hover); color:var(--text); }
+  .model-pill svg{ flex-shrink:0; }
+
+  .model-menu{
+    display:none;
+    position:absolute;
+    bottom:calc(100% + 8px);
+    right:0;
+    background:#fff;
+    border:1px solid var(--border);
+    border-radius:12px;
+    box-shadow:0 6px 20px rgba(0,0,0,.12);
+    padding:6px;
+    min-width:210px;
+    z-index:30;
+  }
+  .model-menu.show{ display:block; }
+
+  .model-menu-item{
+    display:flex;
+    flex-direction:column;
+    align-items:flex-start;
+    gap:2px;
+    width:100%;
+    padding:8px 10px;
+    border-radius:8px;
+    border:none;
+    background:none;
+    cursor:pointer;
+    text-align:left;
+  }
+  .model-menu-item:hover{ background:var(--hover); }
+  .model-menu-item.active{ background:var(--accent-soft); }
+  .model-menu-item .model-name{ font-size:13.5px; font-weight:600; color:var(--text); }
+  .model-menu-item .model-desc{ font-size:11.5px; color:var(--text-soft); }
+
   .composer-hint{
     text-align:center;
     font-size:11.5px;
@@ -465,7 +566,7 @@
     margin-top:8px;
   }
 
-  /* -------- overlay for mobile -------- */
+  /* -------- overlay for mobile sidebar -------- */
   .overlay{
     display:none;
     position:fixed;
@@ -486,18 +587,157 @@
     .overlay.show{ display:block; }
     .menu-toggle{ display:flex; }
     .msg-bubble{ max-width:88%; }
+    .expand-btn{ display:none !important; }
   }
+
+  /* ---------- SETTINGS MODAL ---------- */
+  .modal-overlay{
+    display:none;
+    position:fixed;
+    inset:0;
+    background:rgba(30,28,22,.38);
+    z-index:40;
+    align-items:center;
+    justify-content:center;
+    padding:20px;
+  }
+  .modal-overlay.show{ display:flex; }
+
+  .modal{
+    width:100%;
+    max-width:440px;
+    max-height:88vh;
+    overflow-y:auto;
+    background:#fff;
+    border-radius:16px;
+    box-shadow:0 12px 40px rgba(0,0,0,.18);
+    display:flex;
+    flex-direction:column;
+  }
+
+  .modal-header{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    padding:18px 20px;
+    border-bottom:1px solid var(--border);
+  }
+  .modal-header h2{
+    font-size:16.5px;
+    font-weight:600;
+    color:var(--text);
+  }
+
+  .modal-body{
+    padding:20px;
+    display:flex;
+    flex-direction:column;
+    gap:18px;
+  }
+
+  .avatar-upload{
+    display:flex;
+    align-items:center;
+    gap:14px;
+  }
+  .avatar-preview{
+    width:60px;height:60px;
+    border-radius:50%;
+    background:var(--accent-soft);
+    color:var(--accent);
+    display:flex;align-items:center;justify-content:center;
+    font-size:22px;
+    font-weight:600;
+    flex-shrink:0;
+    background-size:cover;
+    background-position:center;
+    overflow:hidden;
+  }
+
+  .field-group{
+    display:flex;
+    flex-direction:column;
+    gap:6px;
+  }
+  .field-label{
+    font-size:12.5px;
+    font-weight:600;
+    color:var(--text-soft);
+    text-transform:uppercase;
+    letter-spacing:.03em;
+  }
+  .field-hint{
+    font-size:12px;
+    color:var(--text-soft);
+    margin-top:-2px;
+  }
+
+  .text-input, .textarea-input{
+    width:100%;
+    border:1px solid var(--border);
+    border-radius:10px;
+    padding:9px 12px;
+    font-family:inherit;
+    font-size:14px;
+    color:var(--text);
+    outline:none;
+    background:#fff;
+  }
+  .text-input:focus, .textarea-input:focus{
+    border-color:var(--accent);
+  }
+  .textarea-input{
+    resize:vertical;
+    min-height:90px;
+    line-height:1.5;
+  }
+
+  .modal-footer{
+    display:flex;
+    justify-content:flex-end;
+    gap:10px;
+    padding:16px 20px;
+    border-top:1px solid var(--border);
+  }
+
+  .btn{
+    padding:9px 16px;
+    border-radius:10px;
+    font-size:13.5px;
+    font-weight:500;
+    cursor:pointer;
+    border:none;
+  }
+  .btn-secondary{
+    background:var(--hover);
+    color:var(--text);
+  }
+  .btn-secondary:hover{ background:var(--active); }
+  .btn-primary{
+    background:var(--accent);
+    color:#fff;
+  }
+  .btn-primary:hover{ filter:brightness(1.08); }
 </style>
 </head>
 <body>
 
-<div class="app">
+<div class="app" id="appRoot">
 
   <div class="overlay" id="overlay"></div>
 
+  <button class="expand-btn" id="expandBtn" title="Mostrar barra lateral">
+    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
+  </button>
+
   <aside class="sidebar" id="sidebar">
     <div class="sidebar-header">
-      <div class="brand"><span class="dot"></span> ISA</div>
+      <div class="brand-row">
+        <div class="brand"><span class="dot"></span> ISA</div>
+        <button class="sidebar-icon-btn" id="collapseBtn" title="Esconder barra lateral">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
+        </button>
+      </div>
       <div class="brand-sub">Inteligência de Suporte ao Atendimento</div>
       <button class="new-chat-btn" id="newChatBtn">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
@@ -551,6 +791,24 @@
 
         <textarea id="messageInput" placeholder="Envie uma mensagem..." rows="1"></textarea>
 
+        <div class="model-select-wrap">
+          <button class="model-pill" id="modelSelectBtn" title="Selecionar modelo">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 2 7l10 5 10-5-10-5Z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+            <span id="modelSelectLabel">Cerberus Fast</span>
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div class="model-menu" id="modelMenu">
+            <button class="model-menu-item" data-model="think">
+              <span class="model-name">Cerberus Think</span>
+              <span class="model-desc">Pensa com mais calma para respostas complexas</span>
+            </button>
+            <button class="model-menu-item" data-model="fast">
+              <span class="model-name">Cerberus Fast</span>
+              <span class="model-desc">Respostas rápidas para o dia a dia</span>
+            </button>
+          </div>
+        </div>
+
         <button class="icon-btn" id="micBtn" title="Gravar áudio">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
         </button>
@@ -565,6 +823,46 @@
 
 </div>
 
+<!-- ---------- SETTINGS MODAL ---------- -->
+<div class="modal-overlay" id="settingsOverlay">
+  <div class="modal">
+    <div class="modal-header">
+      <h2>Configurações</h2>
+      <button class="sidebar-icon-btn" id="closeSettingsBtn" title="Fechar">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+
+    <div class="modal-body">
+      <div class="field-group">
+        <span class="field-label">Sua foto</span>
+        <div class="avatar-upload">
+          <div class="avatar-preview" id="avatarPreview">R</div>
+          <button class="btn btn-secondary" id="changePhotoBtn">Alterar foto</button>
+          <input type="file" id="avatarInput" accept="image/*" hidden>
+        </div>
+      </div>
+
+      <div class="field-group">
+        <label class="field-label" for="userNameInput">Seu nome</label>
+        <input type="text" id="userNameInput" class="text-input" placeholder="Como o Cerberus deve te chamar">
+      </div>
+
+      <div class="field-group">
+        <label class="field-label" for="personaInput">Como quer que eu atue?</label>
+        <textarea id="personaInput" class="textarea-input" placeholder="Ex: Seja direto, sem enrolação. Me chame pelo primeiro nome. Prefiro respostas curtas e objetivas."></textarea>
+        <span class="field-hint">Essas instruções vão guiar o tom e o estilo das respostas.</span>
+      </div>
+
+    </div>
+
+    <div class="modal-footer">
+      <button class="btn btn-secondary" id="cancelSettingsBtn">Cancelar</button>
+      <button class="btn btn-primary" id="saveSettingsBtn">Salvar</button>
+    </div>
+  </div>
+</div>
+
 <script>
 (function(){
   // ---------- estado em memória ----------
@@ -575,10 +873,16 @@
   let recordedChunks = [];
   let isRecording = false;
 
+  let currentUser = { name: 'Rick', persona: '', photoDataUrl: null };
+  let pendingAvatarDataUrl = null; // foto selecionada no modal, antes de salvar
+
   // ---------- elementos ----------
+  const appRoot = document.getElementById('appRoot');
   const sidebar = document.getElementById('sidebar');
   const overlay = document.getElementById('overlay');
   const menuToggle = document.getElementById('menuToggle');
+  const collapseBtn = document.getElementById('collapseBtn');
+  const expandBtn = document.getElementById('expandBtn');
   const conversationList = document.getElementById('conversationList');
   const newChatBtn = document.getElementById('newChatBtn');
   const greetingWrap = document.getElementById('greetingWrap');
@@ -595,27 +899,54 @@
   const micBtn = document.getElementById('micBtn');
   const pendingAttachmentsEl = document.getElementById('pendingAttachments');
 
+  const modelSelectBtn = document.getElementById('modelSelectBtn');
+  const modelMenu = document.getElementById('modelMenu');
+  const modelSelectLabel = document.getElementById('modelSelectLabel');
+  let selectedModel = 'fast'; // 'think' | 'fast'
+
+  const userAvatarEl = document.getElementById('userAvatar');
+  const userNameEl = document.getElementById('userName');
+
+  // ---------- settings modal elements ----------
+  const settingsOverlay = document.getElementById('settingsOverlay');
+  const closeSettingsBtn = document.getElementById('closeSettingsBtn');
+  const cancelSettingsBtn = document.getElementById('cancelSettingsBtn');
+  const saveSettingsBtn = document.getElementById('saveSettingsBtn');
+  const avatarPreview = document.getElementById('avatarPreview');
+  const changePhotoBtn = document.getElementById('changePhotoBtn');
+  const avatarInput = document.getElementById('avatarInput');
+  const userNameInput = document.getElementById('userNameInput');
+  const personaInput = document.getElementById('personaInput');
+
   // ---------- saudação por horário ----------
   function updateGreeting(){
     const h = new Date().getHours();
     let text = 'Boa noite';
     if (h >= 5 && h < 12) text = 'Bom dia';
     else if (h >= 12 && h < 18) text = 'Boa tarde';
-    greetingTitle.textContent = text;
+    greetingTitle.textContent = currentUser.name ? `${text}, ${currentUser.name}` : text;
   }
   updateGreeting();
   setInterval(updateGreeting, 60000);
 
-  // ---------- sidebar mobile ----------
+  // ---------- sidebar mobile (overlay off-canvas) ----------
   menuToggle.addEventListener('click', () => {
     sidebar.classList.add('open');
     overlay.classList.add('show');
   });
-  overlay.addEventListener('click', closeSidebar);
-  function closeSidebar(){
+  overlay.addEventListener('click', closeSidebarMobile);
+  function closeSidebarMobile(){
     sidebar.classList.remove('open');
     overlay.classList.remove('show');
   }
+
+  // ---------- sidebar collapse (desktop, persistente) ----------
+  collapseBtn.addEventListener('click', () => {
+    appRoot.classList.add('sidebar-collapsed');
+  });
+  expandBtn.addEventListener('click', () => {
+    appRoot.classList.remove('sidebar-collapsed');
+  });
 
   // ---------- criar / trocar conversa ----------
   function createConversation(){
@@ -631,7 +962,7 @@
     activeId = id;
     renderConversationList();
     renderChat();
-    closeSidebar();
+    closeSidebarMobile();
   }
 
   function getActive(){
@@ -889,15 +1220,97 @@
     }
   });
 
-  // ---------- configurações (placeholder até existir login) ----------
-  settingsBtn.addEventListener('click', () => {
-    alert('Configurações e login chegam em uma próxima etapa.');
+  // ---------- seletor de modelo (Think / Fast) ----------
+  function updateModelLabel(){
+    modelSelectLabel.textContent = selectedModel === 'think' ? 'Cerberus Think' : 'Cerberus Fast';
+    modelMenu.querySelectorAll('.model-menu-item').forEach(item => {
+      item.classList.toggle('active', item.dataset.model === selectedModel);
+    });
+  }
+
+  modelSelectBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    modelMenu.classList.toggle('show');
+  });
+
+  modelMenu.querySelectorAll('.model-menu-item').forEach(item => {
+    item.addEventListener('click', (e) => {
+      e.stopPropagation();
+      selectedModel = item.dataset.model;
+      updateModelLabel();
+      modelMenu.classList.remove('show');
+    });
+  });
+
+  document.addEventListener('click', () => modelMenu.classList.remove('show'));
+
+  updateModelLabel();
+
+  // ---------- configurações ----------
+  function renderUserFooter(){
+    userNameEl.textContent = currentUser.name || 'Você';
+    setAvatarVisual(userAvatarEl, currentUser.name, currentUser.photoDataUrl);
+  }
+
+  function setAvatarVisual(el, name, dataUrl){
+    if (dataUrl){
+      el.style.backgroundImage = `url(${dataUrl})`;
+      el.textContent = '';
+    } else {
+      el.style.backgroundImage = 'none';
+      el.textContent = (name || '?').trim().charAt(0).toUpperCase() || '?';
+    }
+  }
+
+  function openSettings(){
+    userNameInput.value = currentUser.name || '';
+    personaInput.value = currentUser.persona || '';
+    pendingAvatarDataUrl = currentUser.photoDataUrl;
+    setAvatarVisual(avatarPreview, currentUser.name, currentUser.photoDataUrl);
+    settingsOverlay.classList.add('show');
+  }
+
+  function closeSettings(){
+    settingsOverlay.classList.remove('show');
+  }
+
+  settingsBtn.addEventListener('click', openSettings);
+  closeSettingsBtn.addEventListener('click', closeSettings);
+  cancelSettingsBtn.addEventListener('click', closeSettings);
+  settingsOverlay.addEventListener('click', (e) => {
+    if (e.target === settingsOverlay) closeSettings();
+  });
+
+  changePhotoBtn.addEventListener('click', () => avatarInput.click());
+  avatarInput.addEventListener('change', () => {
+    const file = avatarInput.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      pendingAvatarDataUrl = reader.result;
+      setAvatarVisual(avatarPreview, userNameInput.value, pendingAvatarDataUrl);
+    };
+    reader.readAsDataURL(file);
+  });
+
+  userNameInput.addEventListener('input', () => {
+    if (!pendingAvatarDataUrl) setAvatarVisual(avatarPreview, userNameInput.value, null);
+  });
+
+  saveSettingsBtn.addEventListener('click', () => {
+    currentUser.name = userNameInput.value.trim() || 'Você';
+    currentUser.persona = personaInput.value.trim();
+    currentUser.photoDataUrl = pendingAvatarDataUrl;
+    renderUserFooter();
+    updateGreeting();
+    closeSettings();
   });
 
   // ---------- início ----------
   newChatBtn.addEventListener('click', createConversation);
   renderConversationList();
   renderChat();
+  renderUserFooter();
   updateSendState();
 })();
 </script>
