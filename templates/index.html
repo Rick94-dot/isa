@@ -1175,7 +1175,11 @@
 
     const bubble = document.createElement('div');
     bubble.className = 'msg-bubble';
-    bubble.textContent = msg.text || '';
+    if (msg.role === 'user'){
+      bubble.textContent = msg.text || '';
+    } else {
+      bubble.innerHTML = renderMarkdown(msg.text || '');
+    }
 
     if (msg.attachments && msg.attachments.length){
       msg.attachments.forEach(att => {
@@ -1232,6 +1236,26 @@
     const d = document.createElement('div');
     d.textContent = str;
     return d.innerHTML;
+  }
+
+  // Converte um subconjunto simples de Markdown (o que o Gemini costuma usar)
+  // em HTML seguro. Sempre escapa o texto primeiro, então aplica as tags —
+  // nunca insere HTML vindo direto da IA sem passar por escapeHtml antes.
+  function renderMarkdown(text){
+    let html = escapeHtml(text);
+
+    // código inline: `texto`
+    html = html.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+    // negrito: **texto**
+    html = html.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
+    // itálico: *texto* (depois do negrito, pra não conflitar)
+    html = html.replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, '$1<em>$2</em>');
+    // linha começando com "- " ou "* " vira item de lista visual simples
+    html = html.replace(/^(?:-|\*)\s+(.+)$/gm, '• $1');
+    // quebras de linha
+    html = html.replace(/\n/g, '<br>');
+
+    return html;
   }
 
   // ---------- envio de mensagem ----------
