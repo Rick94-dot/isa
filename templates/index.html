@@ -638,6 +638,53 @@
     .expand-btn{ display:none !important; }
   }
 
+  /* ---------- TELAS ESTREITAS (celular) ---------- */
+  @media (max-width:560px){
+    .topbar{ padding:10px 14px; }
+    .chat-area{ padding:0 10px; }
+    .composer-wrap{ padding:0 0 14px 0; }
+
+    /* Título e saudação menores, sem estourar a largura */
+    .greeting-title{ font-size:21px; }
+    .greeting-sub{ font-size:13.5px; }
+    .greeting-wrap{ padding-bottom:80px; gap:4px; }
+
+    /* Composer: em vez de espremer tudo numa linha só, o campo de texto
+       fica sozinho em cima e os botões (anexo, modelo, mic, enviar) numa
+       segunda linha por baixo — evita sobreposição/estouro horizontal. */
+    .composer{
+      flex-wrap:wrap;
+      padding:8px;
+    }
+    .composer textarea{
+      order:-1;
+      flex:1 1 100%;
+      padding:4px 4px 8px 4px;
+    }
+    .model-pill{
+      padding:0 8px;
+      font-size:12px;
+    }
+    .model-select-wrap{ margin-right:auto; }
+    .model-menu{
+      left:0;
+      right:auto;
+      min-width:190px;
+      max-width:min(260px, calc(100vw - 40px));
+    }
+
+    /* Modais (login, cadastro, configurações) com menos respiro nas bordas */
+    .modal-overlay{ padding:12px; }
+    .modal-body{ padding:16px; gap:14px; }
+    .modal-header{ padding:14px 16px; }
+    .modal-footer{ padding:12px 16px; flex-wrap:wrap; }
+    .avatar-upload{ flex-wrap:wrap; row-gap:8px; }
+
+    /* Bolhas de mensagem com um pouco mais de espaço útil */
+    .msg-bubble{ max-width:92%; font-size:14px; }
+    .messages{ gap:16px; }
+  }
+
   /* ---------- SETTINGS MODAL ---------- */
   .modal-overlay{
     display:none;
@@ -1151,7 +1198,7 @@
         .slice(0, idx)
         .filter(m => m.text)
         .map(m => ({ role: m.role, text: m.text }));
-      const reply = await callBackend(history);
+      const reply = await callBackend(history, conv.id);
       conv.messages[idx].text = reply;
     } catch (err) {
       conv.messages[idx].text = 'Não consegui regenerar agora. Detalhe: ' + err.message;
@@ -1279,11 +1326,11 @@
 
   sendBtn.addEventListener('click', sendMessage);
 
-  async function callBackend(history){
+  async function callBackend(history, conversationId){
     const response = await fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ history, model: selectedModel })
+      body: JSON.stringify({ history, model: selectedModel, conversation_id: conversationId })
     });
     if (!response.ok){
       const errText = await response.text();
@@ -1329,7 +1376,7 @@
       const history = conv.messages
         .filter(m => m.text)
         .map(m => ({ role: m.role, text: m.text }));
-      const reply = await callBackend(history);
+      const reply = await callBackend(history, conv.id);
       hideTyping();
       conv.messages.push({ role:'bot', text: reply });
     } catch (err) {
