@@ -13,6 +13,7 @@ próprio (guardado num cookie de sessão assinado) e, a partir dele:
 
 import os
 import base64
+import json
 import logging
 from datetime import datetime, timedelta
 
@@ -21,7 +22,7 @@ from bs4 import BeautifulSoup
 from bson import ObjectId
 from bson.errors import InvalidId
 from dotenv import load_dotenv
-from flask import Flask, request, jsonify, render_template, session
+from flask import Flask, request, jsonify, render_template, session, Response, stream_with_context
 from pymongo import MongoClient, DESCENDING
 
 from google import genai
@@ -146,7 +147,14 @@ def build_system_prompt(persona: str) -> str:
     return BASE_SYSTEM_PROMPT
 
 
-def ask_isa(history: list[dict], persona: str = "", attachments: list[dict] | None = None) -> str:
+def ask_isa_stream(history: list[dict], persona: str = "", attachments: list[dict] | None = None):
+    """
+    Generator que vai "narrando" o que está fazendo de verdade, em vez de
+    fingir. Cada item emitido é um dict:
+      {"type": "status", "text": "..."}  -> uma etapa em andamento
+      {"type": "final", "reply": "..."}  -> a resposta final (sempre o
+                                             último item emitido)
+    """
     contents = []
     for msg in history:
         if not msg.get("text"):
@@ -155,11 +163,18 @@ def ask_isa(history: list[dict], persona: str = "", attachments: list[dict] | No
         contents.append(types.Content(role=role, parts=[types.Part(text=msg["text"])]))
 
     if not contents:
-        return "Não recebi nenhuma mensagem."
+        yield {"type": "final", "reply": "Não recebi nenhuma mensagem."}
+        return
 
     # Os anexos (imagem, PDF, etc.) da mensagem atual entram como partes
     # extras na última fala do usuário, junto com o texto.
     if attachments and contents[-1].role == "user":
+        if len(attachments) == 1:
+            nome = attachments[0].get("name") or "arquivo"
+            yield {"type": "status", "text": f"Lendo arquivo: {nome}"}
+        else:
+            yield {"type": "status", "text": f"Lendo {len(attachments)} arquivos enviados..."}
+
         for att in attachments:
             try:
                 raw_bytes = base64.b64decode(att["data"])
@@ -174,7 +189,12 @@ def ask_isa(history: list[dict], persona: str = "", attachments: list[dict] | No
         tools=[fetch_tool],
     )
 
-    for _ in range(5):  # limite de segurança contra loops infinitos
+    for step in range(5):  # limite de segurança contra loops infinitos
+        yield {
+            "type": "status",
+            "text": "Pensando..." if step == 0 else "Organizando a resposta com o que encontrei...",
+        }
+
         response = client.models.generate_content(
             model=MODEL_NAME,
             contents=contents,
@@ -192,12 +212,14 @@ def ask_isa(history: list[dict], persona: str = "", attachments: list[dict] | No
                 text_parts.append(part.text)
 
         if function_call is None:
-            return "".join(text_parts) or "Não consegui gerar uma resposta."
+            yield {"type": "final", "reply": "".join(text_parts) or "Não consegui gerar uma resposta."}
+            return
 
         contents.append(candidate.content)
 
         if function_call.name == "fetch_website":
             url = function_call.args.get("url", "")
+            yield {"type": "status", "text": f"Buscando na web: {url}"}
             logger.info(f"Buscando site: {url}")
             result_text = fetch_website(url)
         else:
@@ -215,7 +237,10 @@ def ask_isa(history: list[dict], persona: str = "", attachments: list[dict] | No
             )
         )
 
-    return "Cheguei no limite de passos tentando responder. Tente reformular a pergunta."
+    yield {
+        "type": "final",
+        "reply": "Cheguei no limite de passos tentando responder. Tente reformular a pergunta.",
+    }
 
 
 # --------------------------------------------------------------------------
@@ -357,55 +382,64 @@ def chat():
     history = data.get("history", [])
     conversation_id = data.get("conversation_id")
     attachments = data.get("attachments") or []
+    persona = user.get("persona", "")
+    user_id = user["_id"]
 
-    try:
-        reply = ask_isa(history, persona=user.get("persona", ""), attachments=attachments)
-    except Exception as e:
-        logger.exception("Erro ao falar com o Gemini")
-        reply = f"Ocorreu um erro ao falar com o Gemini: {e}"
+    def generate():
+        reply = "Não consegui gerar uma resposta."
+        try:
+            for event in ask_isa_stream(history, persona=persona, attachments=attachments):
+                if event.get("type") == "final":
+                    reply = event.get("reply", reply)
+                yield json.dumps(event, ensure_ascii=False) + "\n"
+        except Exception as e:
+            logger.exception("Erro ao falar com o Gemini")
+            reply = f"Ocorreu um erro ao falar com o Gemini: {e}"
+            yield json.dumps({"type": "final", "reply": reply}, ensure_ascii=False) + "\n"
 
-    # Memória: salva a troca de mensagens no MongoDB, vinculada ao usuário
-    # e à conversa (client_id gerado no navegador).
-    if conversation_id and history:
-        now = datetime.utcnow()
-        last_user_msg = history[-1] if history[-1].get("role") == "user" else None
+        # Memória: salva a troca de mensagens no MongoDB, vinculada ao usuário
+        # e à conversa (client_id gerado no navegador). Roda depois de já ter
+        # mandado a resposta final pro navegador, pra não atrasar a resposta.
+        if conversation_id and history:
+            now = datetime.utcnow()
+            last_user_msg = history[-1] if history[-1].get("role") == "user" else None
 
-        new_messages = []
-        if last_user_msg:
-            user_msg_doc = {
-                "role": "user",
-                "text": last_user_msg["text"],
-                "created_at": now,
-            }
-            if attachments:
-                # Guardamos só o nome/tipo do anexo, não o arquivo inteiro,
-                # pra não pesar o banco — o conteúdo já foi processado pelo
-                # Gemini na hora, não precisa ficar salvo.
-                user_msg_doc["attachments"] = [
-                    {"name": a.get("name", ""), "mimeType": a.get("mimeType", "")}
-                    for a in attachments
-                ]
-            new_messages.append(user_msg_doc)
-        new_messages.append({"role": "bot", "text": reply, "created_at": now})
-
-        title = (last_user_msg["text"][:42] if last_user_msg else "Nova conversa")
-
-        conversations_col.update_one(
-            {"client_id": conversation_id, "user_id": user["_id"]},
-            {
-                "$push": {"messages": {"$each": new_messages}},
-                "$set": {"updated_at": now},
-                "$setOnInsert": {
-                    "user_id": user["_id"],
-                    "client_id": conversation_id,
-                    "title": title,
+            new_messages = []
+            if last_user_msg:
+                user_msg_doc = {
+                    "role": "user",
+                    "text": last_user_msg["text"],
                     "created_at": now,
-                },
-            },
-            upsert=True,
-        )
+                }
+                if attachments:
+                    # Guardamos só o nome/tipo do anexo, não o arquivo inteiro,
+                    # pra não pesar o banco — o conteúdo já foi processado pelo
+                    # Gemini na hora, não precisa ficar salvo.
+                    user_msg_doc["attachments"] = [
+                        {"name": a.get("name", ""), "mimeType": a.get("mimeType", "")}
+                        for a in attachments
+                    ]
+                new_messages.append(user_msg_doc)
+            new_messages.append({"role": "bot", "text": reply, "created_at": now})
 
-    return jsonify({"reply": reply})
+            title = (last_user_msg["text"][:42] if last_user_msg else "Nova conversa")
+
+            conversations_col.update_one(
+                {"client_id": conversation_id, "user_id": user_id},
+                {
+                    "$push": {"messages": {"$each": new_messages}},
+                    "$set": {"updated_at": now},
+                    "$setOnInsert": {
+                        "user_id": user_id,
+                        "client_id": conversation_id,
+                        "title": title,
+                        "created_at": now,
+                    },
+                },
+                upsert=True,
+            )
+
+    return Response(stream_with_context(generate()), mimetype="application/x-ndjson")
 
 
 if __name__ == "__main__":

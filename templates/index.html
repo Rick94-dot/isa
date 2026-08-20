@@ -1213,16 +1213,21 @@
   }
 
   async function regenerateMessage(conv, idx){
-    conv.messages[idx].text = 'Gerando uma nova resposta...';
+    conv.messages[idx].text = 'Pensando...';
     conv.messages[idx].liked = false;
     renderChat();
+
+    const onStatus = (text) => {
+      conv.messages[idx].text = text;
+      renderChat();
+    };
 
     try {
       const history = conv.messages
         .slice(0, idx)
         .filter(m => m.text)
         .map(m => ({ role: m.role, text: m.text }));
-      const reply = await callBackend(history, conv.id);
+      const reply = await callBackend(history, conv.id, [], onStatus);
       conv.messages[idx].text = reply;
     } catch (err) {
       conv.messages[idx].text = 'Não consegui regenerar agora. Detalhe: ' + err.message;
@@ -1358,7 +1363,7 @@
 
   sendBtn.addEventListener('click', sendMessage);
 
-  async function callBackend(history, conversationId, attachments){
+  async function callBackend(history, conversationId, attachments, onStatus){
     const response = await fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1373,8 +1378,36 @@
       const errText = await response.text();
       throw new Error(errText || ('Erro HTTP ' + response.status));
     }
-    const data = await response.json();
-    return data.reply || 'Não consegui gerar uma resposta.';
+
+    // A resposta vem em streaming: uma linha de JSON por evento
+    // ({"type":"status",...} enquanto processa, {"type":"final",...} no fim).
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let finalReply = null;
+
+    function handleLine(line){
+      if (!line.trim()) return;
+      let event;
+      try { event = JSON.parse(line); } catch (e) { return; }
+      if (event.type === 'status' && onStatus){
+        onStatus(event.text);
+      } else if (event.type === 'final'){
+        finalReply = event.reply;
+      }
+    }
+
+    while (true){
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop(); // guarda a linha incompleta pro próximo pedaço
+      lines.forEach(handleLine);
+    }
+    handleLine(buffer);
+
+    return finalReply || 'Não consegui gerar uma resposta.';
   }
 
   async function sendMessage(){
@@ -1414,7 +1447,7 @@
       const history = conv.messages
         .filter(m => m.text)
         .map(m => ({ role: m.role, text: m.text }));
-      const reply = await callBackend(history, conv.id, attachmentsForRequest);
+      const reply = await callBackend(history, conv.id, attachmentsForRequest, updateThinkingStatus);
       hideTyping();
       conv.messages.push({ role:'bot', text: reply });
     } catch (err) {
@@ -1424,26 +1457,23 @@
     renderChat();
   }
 
-  const THINKING_PHASES = ['Pensando...', 'Buscando na web...', 'Organizando a resposta...'];
-  let thinkingInterval = null;
+  let thinkingStatusEl = null;
 
   function showTyping(){
     const row = document.createElement('div');
     row.className = 'msg-row bot';
     row.id = 'typingRow';
-    row.innerHTML = '<div class="msg-avatar">' + BOT_AVATAR_ICON + '</div><div class="thinking-status" id="thinkingStatusText">' + THINKING_PHASES[0] + '</div>';
+    row.innerHTML = '<div class="msg-avatar">' + BOT_AVATAR_ICON + '</div><div class="thinking-status" id="thinkingStatusText">Pensando...</div>';
     messagesEl.appendChild(row);
     chatArea.scrollTop = chatArea.scrollHeight;
-
-    let phaseIdx = 0;
-    const label = row.querySelector('#thinkingStatusText');
-    thinkingInterval = setInterval(() => {
-      phaseIdx = (phaseIdx + 1) % THINKING_PHASES.length;
-      if (label) label.textContent = THINKING_PHASES[phaseIdx];
-    }, 650);
+    thinkingStatusEl = row.querySelector('#thinkingStatusText');
+  }
+  function updateThinkingStatus(text){
+    if (thinkingStatusEl) thinkingStatusEl.textContent = text;
+    chatArea.scrollTop = chatArea.scrollHeight;
   }
   function hideTyping(){
-    if (thinkingInterval){ clearInterval(thinkingInterval); thinkingInterval = null; }
+    thinkingStatusEl = null;
     const row = document.getElementById('typingRow');
     if (row) row.remove();
   }
