@@ -64,11 +64,41 @@ logger = logging.getLogger("isa-backend")
 
 client = genai.Client(api_key=GEMINI_API_KEY)
 
-BASE_SYSTEM_PROMPT = (
-    "Você é a ISA, uma assistente de IA que fala português do Brasil. "
-    "Quando precisar de informações de um site específico para responder, "
-    "use a ferramenta fetch_website. Seja direta, clara e simpática."
-)
+BASE_SYSTEM_PROMPT = """Você é a ISA, a assistente de IA interna da CNP Seguradora.
+
+Você é usada por colaboradores dos canais críticos da empresa (atendimento,
+suporte, áreas operacionais). Por enquanto, seu foco são os segmentos de
+ODONTO e SEGUROS.
+
+## Seu papel
+- Ajudar os colaboradores no dia a dia com dúvidas sobre esses dois
+  segmentos: terminologia do setor, conceitos de coberturas, carências,
+  sinistros, tipos de plano, procedimentos odontológicos, produtos de
+  seguros em geral, boas práticas de atendimento, etc.
+- Ser direta, clara e prestativa. O público é interno e muitas vezes já
+  conhece o jargão do setor — pode ser tecnicamente preciso, sem enrolar,
+  mas sem perder a simpatia.
+- Falar sempre em português do Brasil.
+
+## Muito importante: o que você sabe e o que ainda não sabe
+- Você tem bom conhecimento GERAL sobre odontologia e seguros (conceitos,
+  termos técnicos, como o setor funciona de forma ampla).
+- Você AINDA NÃO tem acesso à base de conhecimento interna da CNP (produtos
+  específicos, tabelas de cobertura, valores, políticas internas, nomes
+  exatos de planos, procedimentos internos da empresa). Isso está previsto
+  para uma etapa futura do projeto.
+- Quando a pergunta depender de um dado específico da CNP que você não tem
+  certeza absoluta, seja honesta: diga claramente que ainda não tem essa
+  informação carregada e sugira que a pessoa confirme na fonte interna
+  oficial. NUNCA invente números, nomes de produtos, percentuais de
+  cobertura ou políticas específicas da CNP — isso pode gerar informação
+  errada para quem está atendendo um cliente de verdade.
+- Fora isso, use seu conhecimento geral normalmente para ajudar.
+
+## Ferramentas disponíveis
+Quando precisar de informações de um site específico para responder, use a
+ferramenta fetch_website.
+"""
 
 MAX_CHARS = 8000  # limite de caracteres extraídos de cada página
 
@@ -81,6 +111,7 @@ db = mongo_client.get_database("isa_db")
 
 users_col = db["users"]
 conversations_col = db["conversations"]
+likes_col = db["likes"]
 
 # --------------------------------------------------------------------------
 # Ferramenta: buscar conteúdo de um site
@@ -137,17 +168,32 @@ fetch_tool = types.Tool(
 # Conversa com o Gemini (com suporte a tool use e persona por usuário)
 # --------------------------------------------------------------------------
 
-def build_system_prompt(persona: str) -> str:
+def build_system_prompt(persona: str, user_name: str = "") -> str:
+    prompt = BASE_SYSTEM_PROMPT
+
+    if user_name:
+        prompt += (
+            f"\n\n## Sobre quem está falando com você agora\n"
+            f'O nome da pessoa é "{user_name}". Chame-a pelo nome quando fizer '
+            f'sentido (por exemplo, ao cumprimentar ou iniciar uma resposta), '
+            f"sem exagerar repetindo o nome em toda frase."
+        )
+
     if persona:
-        return (
-            BASE_SYSTEM_PROMPT
-            + "\n\nInstruções extras definidas pelo usuário sobre como você deve agir: "
+        prompt += (
+            "\n\n## Instruções extras definidas pela própria pessoa sobre como você deve agir\n"
             + persona
         )
-    return BASE_SYSTEM_PROMPT
+
+    return prompt
 
 
-def ask_isa_stream(history: list[dict], persona: str = "", attachments: list[dict] | None = None):
+def ask_isa_stream(
+    history: list[dict],
+    persona: str = "",
+    attachments: list[dict] | None = None,
+    user_name: str = "",
+):
     """
     Generator que vai "narrando" o que está fazendo de verdade, em vez de
     fingir. Cada item emitido é um dict:
@@ -185,7 +231,7 @@ def ask_isa_stream(history: list[dict], persona: str = "", attachments: list[dic
                 logger.exception(f"Não consegui processar o anexo: {att.get('name')}")
 
     generation_config = types.GenerateContentConfig(
-        system_instruction=build_system_prompt(persona),
+        system_instruction=build_system_prompt(persona, user_name),
         tools=[fetch_tool],
     )
 
@@ -375,6 +421,49 @@ def get_conversation(client_id):
     })
 
 
+@app.route("/api/likes", methods=["POST"])
+def toggle_like():
+    """
+    Curtir/descurtir uma mensagem. Guarda o nome do usuário e o texto da
+    mensagem curtida — identificado pela combinação usuário + conversa +
+    posição da mensagem naquela conversa (pra permitir desfazer o like).
+    """
+    user = get_or_create_user()
+    data = request.get_json(force=True) or {}
+
+    conversation_id = data.get("conversation_id")
+    message_index = data.get("message_index")
+    text = data.get("text", "")
+    liked = bool(data.get("liked"))
+
+    if conversation_id is None or message_index is None:
+        return jsonify({"error": "Faltam dados da mensagem."}), 400
+
+    key = {
+        "user_id": user["_id"],
+        "conversation_id": conversation_id,
+        "message_index": message_index,
+    }
+
+    if liked:
+        likes_col.update_one(
+            key,
+            {
+                "$set": {
+                    "user_name": user.get("name") or "Sem nome",
+                    "text": text,
+                    "created_at": datetime.utcnow(),
+                },
+                "$setOnInsert": key,
+            },
+            upsert=True,
+        )
+    else:
+        likes_col.delete_one(key)
+
+    return jsonify({"status": "ok", "liked": liked})
+
+
 @app.route("/api/chat", methods=["POST"])
 def chat():
     user = get_or_create_user()
@@ -383,12 +472,13 @@ def chat():
     conversation_id = data.get("conversation_id")
     attachments = data.get("attachments") or []
     persona = user.get("persona", "")
+    user_name = user.get("name", "")
     user_id = user["_id"]
 
     def generate():
         reply = "Não consegui gerar uma resposta."
         try:
-            for event in ask_isa_stream(history, persona=persona, attachments=attachments):
+            for event in ask_isa_stream(history, persona=persona, attachments=attachments, user_name=user_name):
                 if event.get("type") == "final":
                     reply = event.get("reply", reply)
                 yield json.dumps(event, ensure_ascii=False) + "\n"

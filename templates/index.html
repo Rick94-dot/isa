@@ -1294,10 +1294,25 @@
     actions.appendChild(copyBtn);
 
     if (msg.role !== 'user'){
-      const likeBtn = makeActionBtn(msg.liked ? ICON_LIKE_FILLED : ICON_LIKE, 'Gostei', () => {
+      const likeBtn = makeActionBtn(msg.liked ? ICON_LIKE_FILLED : ICON_LIKE, 'Gostei', async () => {
         msg.liked = !msg.liked;
         likeBtn.innerHTML = msg.liked ? ICON_LIKE_FILLED : ICON_LIKE;
         likeBtn.classList.toggle('active', msg.liked);
+
+        try {
+          await fetch('/api/likes', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              conversation_id: conv.id,
+              message_index: idx,
+              text: msg.text || '',
+              liked: msg.liked
+            })
+          });
+        } catch (err) {
+          console.error('Não foi possível salvar a curtida:', err);
+        }
       });
       likeBtn.classList.toggle('active', !!msg.liked);
       actions.appendChild(likeBtn);
