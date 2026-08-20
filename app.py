@@ -1,20 +1,27 @@
 """
-ISA - Backend com Gemini 3.5 Flash-Lite
+ISA - Backend com Gemini 3.5 Flash-Lite + memória real via MongoDB
 
-Fluxo:
-  Frontend manda o histórico da conversa (POST /api/chat)
-    -> Backend chama o Gemini
-    -> Se o Gemini pedir a ferramenta fetch_website, o backend busca o site
-       e devolve o conteúdo pro Gemini
-    -> Backend devolve a resposta final pro frontend
+Não tem tela de login (isso fica pra uma próxima etapa, com código de
+convite). Por enquanto, cada navegador que acessa ganha um identificador
+próprio (guardado num cookie de sessão assinado) e, a partir dele:
+
+  - o perfil (nome, foto, persona) fica salvo e é recuperado depois
+  - cada conversa é salva no MongoDB, mensagem por mensagem
+  - a lista de conversas do usuário é devolvida pro frontend popular a
+    sidebar, permitindo voltar de onde parou
 """
 
 import os
 import logging
+from datetime import datetime, timedelta
+
 import requests
 from bs4 import BeautifulSoup
+from bson import ObjectId
+from bson.errors import InvalidId
 from dotenv import load_dotenv
-from flask import Flask, request, jsonify, render_template
+from flask import Flask, request, jsonify, render_template, session
+from pymongo import MongoClient, DESCENDING
 
 from google import genai
 from google.genai import types
@@ -27,6 +34,8 @@ load_dotenv()
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 MODEL_NAME = os.getenv("GEMINI_MODEL", "gemini-3.5-flash-lite")
+MONGODB_URI = os.getenv("MONGODB_URI")
+FLASK_SECRET_KEY = os.getenv("FLASK_SECRET_KEY")
 
 if not GEMINI_API_KEY:
     raise RuntimeError(
@@ -35,18 +44,41 @@ if not GEMINI_API_KEY:
         "https://aistudio.google.com/apikey"
     )
 
+if not MONGODB_URI:
+    raise RuntimeError(
+        "Falta a variável MONGODB_URI. Configure ela no arquivo .env "
+        "com a connection string do seu cluster do MongoDB Atlas."
+    )
+
+if not FLASK_SECRET_KEY:
+    raise RuntimeError(
+        "Falta a variável FLASK_SECRET_KEY. Gere uma com:\n"
+        "  python -c \"import secrets; print(secrets.token_hex(32))\"\n"
+        "e coloque o resultado no .env."
+    )
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(message)s")
 logger = logging.getLogger("isa-backend")
 
 client = genai.Client(api_key=GEMINI_API_KEY)
 
-SYSTEM_PROMPT = (
+BASE_SYSTEM_PROMPT = (
     "Você é a ISA, uma assistente de IA que fala português do Brasil. "
     "Quando precisar de informações de um site específico para responder, "
     "use a ferramenta fetch_website. Seja direta, clara e simpática."
 )
 
 MAX_CHARS = 8000  # limite de caracteres extraídos de cada página
+
+# --------------------------------------------------------------------------
+# MongoDB
+# --------------------------------------------------------------------------
+
+mongo_client = MongoClient(MONGODB_URI)
+db = mongo_client.get_database("isa_db")
+
+users_col = db["users"]
+conversations_col = db["conversations"]
 
 # --------------------------------------------------------------------------
 # Ferramenta: buscar conteúdo de um site
@@ -99,20 +131,21 @@ fetch_tool = types.Tool(
     ]
 )
 
-generation_config = types.GenerateContentConfig(
-    system_instruction=SYSTEM_PROMPT,
-    tools=[fetch_tool],
-)
-
 # --------------------------------------------------------------------------
-# Conversa com o Gemini (com suporte a tool use)
+# Conversa com o Gemini (com suporte a tool use e persona por usuário)
 # --------------------------------------------------------------------------
 
-def ask_isa(history: list[dict]) -> str:
-    """
-    history: lista de {"role": "user"|"bot", "text": "..."} vinda do frontend.
-    Retorna o texto final da resposta da ISA.
-    """
+def build_system_prompt(persona: str) -> str:
+    if persona:
+        return (
+            BASE_SYSTEM_PROMPT
+            + "\n\nInstruções extras definidas pelo usuário sobre como você deve agir: "
+            + persona
+        )
+    return BASE_SYSTEM_PROMPT
+
+
+def ask_isa(history: list[dict], persona: str = "") -> str:
     contents = []
     for msg in history:
         if not msg.get("text"):
@@ -123,7 +156,11 @@ def ask_isa(history: list[dict]) -> str:
     if not contents:
         return "Não recebi nenhuma mensagem."
 
-    # Loop de tool use: repete enquanto o modelo continuar pedindo ferramentas
+    generation_config = types.GenerateContentConfig(
+        system_instruction=build_system_prompt(persona),
+        tools=[fetch_tool],
+    )
+
     for _ in range(5):  # limite de segurança contra loops infinitos
         response = client.models.generate_content(
             model=MODEL_NAME,
@@ -144,7 +181,6 @@ def ask_isa(history: list[dict]) -> str:
         if function_call is None:
             return "".join(text_parts) or "Não consegui gerar uma resposta."
 
-        # O modelo pediu a ferramenta: registramos a fala dele e executamos
         contents.append(candidate.content)
 
         if function_call.name == "fetch_website":
@@ -170,27 +206,149 @@ def ask_isa(history: list[dict]) -> str:
 
 
 # --------------------------------------------------------------------------
+# Identidade do usuário (sem login, só um cookie de sessão persistente)
+# --------------------------------------------------------------------------
+
+def get_or_create_user():
+    """
+    Cada navegador ganha um usuário próprio na primeira visita. O id fica
+    guardado num cookie de sessão assinado (não dá pra falsificar sem a
+    FLASK_SECRET_KEY) e persiste por 1 ano.
+    """
+    user_id = session.get("user_id")
+    if user_id:
+        try:
+            user = users_col.find_one({"_id": ObjectId(user_id)})
+            if user:
+                return user
+        except InvalidId:
+            pass
+
+    doc = {
+        "name": "",
+        "persona": "",
+        "photo": "",
+        "created_at": datetime.utcnow(),
+    }
+    result = users_col.insert_one(doc)
+    doc["_id"] = result.inserted_id
+
+    session.permanent = True
+    session["user_id"] = str(doc["_id"])
+    return doc
+
+
+def serialize_user(user: dict) -> dict:
+    return {
+        "name": user.get("name", ""),
+        "persona": user.get("persona", ""),
+        "photo": user.get("photo", ""),
+    }
+
+
+# --------------------------------------------------------------------------
 # Servidor Flask
 # --------------------------------------------------------------------------
 
 app = Flask(__name__)
+app.secret_key = FLASK_SECRET_KEY
+app.permanent_session_lifetime = timedelta(days=365)
 
 
 @app.route("/")
 def index():
+    get_or_create_user()  # garante o cookie já na primeira carga da página
     return render_template("index.html")
+
+
+@app.route("/api/me")
+def me():
+    user = get_or_create_user()
+    return jsonify({"user": serialize_user(user)})
+
+
+@app.route("/api/profile", methods=["POST"])
+def update_profile():
+    user = get_or_create_user()
+    data = request.get_json(force=True) or {}
+
+    updates = {}
+    if "name" in data:
+        updates["name"] = (data["name"] or "").strip()
+    if "persona" in data:
+        updates["persona"] = (data["persona"] or "").strip()
+    if "photo" in data:
+        updates["photo"] = data["photo"] or ""
+
+    if updates:
+        users_col.update_one({"_id": user["_id"]}, {"$set": updates})
+
+    updated = users_col.find_one({"_id": user["_id"]})
+    return jsonify({"user": serialize_user(updated)})
+
+
+@app.route("/api/conversations")
+def list_conversations():
+    user = get_or_create_user()
+    docs = conversations_col.find({"user_id": user["_id"]}).sort("updated_at", DESCENDING)
+
+    result = []
+    for d in docs:
+        result.append({
+            "client_id": d.get("client_id"),
+            "title": d.get("title") or "Nova conversa",
+            "messages": [
+                {"role": m.get("role"), "text": m.get("text", "")}
+                for m in d.get("messages", [])
+            ],
+        })
+    return jsonify({"conversations": result})
 
 
 @app.route("/api/chat", methods=["POST"])
 def chat():
+    user = get_or_create_user()
     data = request.get_json(force=True) or {}
     history = data.get("history", [])
+    conversation_id = data.get("conversation_id")
 
     try:
-        reply = ask_isa(history)
+        reply = ask_isa(history, persona=user.get("persona", ""))
     except Exception as e:
         logger.exception("Erro ao falar com o Gemini")
         reply = f"Ocorreu um erro ao falar com o Gemini: {e}"
+
+    # Memória: salva a troca de mensagens no MongoDB, vinculada ao usuário
+    # e à conversa (client_id gerado no navegador).
+    if conversation_id and history:
+        now = datetime.utcnow()
+        last_user_msg = history[-1] if history[-1].get("role") == "user" else None
+
+        new_messages = []
+        if last_user_msg:
+            new_messages.append({
+                "role": "user",
+                "text": last_user_msg["text"],
+                "created_at": now,
+            })
+        new_messages.append({"role": "bot", "text": reply, "created_at": now})
+
+        title = (last_user_msg["text"][:42] if last_user_msg else "Nova conversa")
+
+        conversations_col.update_one(
+            {"client_id": conversation_id, "user_id": user["_id"]},
+            {
+                "$push": {"messages": {"$each": new_messages}},
+                "$set": {"updated_at": now},
+                "$setOnInsert": {
+                    "user_id": user["_id"],
+                    "client_id": conversation_id,
+                    "title": title,
+                    "created_at": now,
+                },
+            },
+            upsert=True,
+        )
 
     return jsonify({"reply": reply})
 

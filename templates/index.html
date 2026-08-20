@@ -1548,21 +1548,71 @@
     if (!pendingAvatarDataUrl) setAvatarVisual(avatarPreview, userNameInput.value, null);
   });
 
-  saveSettingsBtn.addEventListener('click', () => {
-    currentUser.name = userNameInput.value.trim() || 'Você';
-    currentUser.persona = personaInput.value.trim();
+  saveSettingsBtn.addEventListener('click', async () => {
+    const newName = userNameInput.value.trim() || 'Você';
+    const newPersona = personaInput.value.trim();
+
+    currentUser.name = newName;
+    currentUser.persona = newPersona;
     currentUser.photoDataUrl = pendingAvatarDataUrl;
     renderUserFooter();
     updateGreeting();
     closeSettings();
+
+    try {
+      const payload = { name: newName, persona: newPersona };
+      if (pendingAvatarDataUrl) payload.photo = pendingAvatarDataUrl;
+      await fetch('/api/profile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+    } catch (err) {
+      console.error('Não foi possível salvar o perfil no servidor:', err);
+    }
   });
+
+  function applyServerUser(serverUser){
+    if (!serverUser) return;
+    currentUser.name = serverUser.name || 'Você';
+    currentUser.persona = serverUser.persona || '';
+    currentUser.photoDataUrl = serverUser.photo || null;
+    renderUserFooter();
+    updateGreeting();
+  }
+
+  async function bootstrap(){
+    try {
+      const meRes = await fetch('/api/me');
+      const meData = await meRes.json();
+      applyServerUser(meData.user);
+    } catch (err) {
+      console.error('Não foi possível carregar o perfil salvo:', err);
+    }
+
+    try {
+      const convRes = await fetch('/api/conversations');
+      const convData = await convRes.json();
+      if (convData.conversations && convData.conversations.length){
+        conversations = convData.conversations.map(c => ({
+          id: c.client_id,
+          title: c.title,
+          messages: (c.messages || []).map(m => ({ role: m.role, text: m.text }))
+        }));
+      }
+    } catch (err) {
+      console.error('Não foi possível carregar as conversas salvas:', err);
+    }
+
+    renderConversationList();
+    renderChat();
+  }
 
   // ---------- início ----------
   newChatBtn.addEventListener('click', createConversation);
-  renderConversationList();
-  renderChat();
   renderUserFooter();
   updateSendState();
+  bootstrap();
 })();
 </script>
 
