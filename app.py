@@ -188,6 +188,22 @@ def build_system_prompt(persona: str, user_name: str = "") -> str:
     return prompt
 
 
+# O navegador identifica arquivos de áudio com tipos MIME "do jeito dele"
+# (ex: .mp3 vira "audio/mpeg"), mas a API do Gemini espera tipos MIME
+# específicos. Aqui a gente traduz os mais comuns antes de mandar pra ela.
+AUDIO_MIME_ALIASES = {
+    "audio/mpeg": "audio/mp3",
+    "audio/mpeg3": "audio/mp3",
+    "audio/x-mpeg-3": "audio/mp3",
+    "audio/x-m4a": "audio/mp4",
+    "audio/mp4a-latm": "audio/mp4",
+}
+
+
+def normalize_mime_type(mime_type: str) -> str:
+    return AUDIO_MIME_ALIASES.get(mime_type, mime_type)
+
+
 def ask_isa_stream(
     history: list[dict],
     persona: str = "",
@@ -212,8 +228,7 @@ def ask_isa_stream(
         yield {"type": "final", "reply": "Não recebi nenhuma mensagem."}
         return
 
-    # Os anexos (imagem, PDF, etc.) da mensagem atual entram como partes
-    # extras na última fala do usuário, junto com o texto.
+    failed_names = []
     if attachments and contents[-1].role == "user":
         if len(attachments) == 1:
             nome = attachments[0].get("name") or "arquivo"
@@ -224,11 +239,22 @@ def ask_isa_stream(
         for att in attachments:
             try:
                 raw_bytes = base64.b64decode(att["data"])
+                mime_type = normalize_mime_type(att["mimeType"])
                 contents[-1].parts.append(
-                    types.Part.from_bytes(data=raw_bytes, mime_type=att["mimeType"])
+                    types.Part.from_bytes(data=raw_bytes, mime_type=mime_type)
                 )
             except Exception:
                 logger.exception(f"Não consegui processar o anexo: {att.get('name')}")
+                failed_names.append(att.get("name") or "arquivo")
+
+    def with_attachment_warning(reply: str) -> str:
+        if not failed_names:
+            return reply
+        aviso = (
+            f"⚠️ Não consegui processar o(s) arquivo(s): {', '.join(failed_names)} "
+            f"(formato pode não ser suportado). Segui só com o texto da mensagem.\n\n"
+        )
+        return aviso + reply
 
     generation_config = types.GenerateContentConfig(
         system_instruction=build_system_prompt(persona, user_name),
@@ -258,7 +284,8 @@ def ask_isa_stream(
                 text_parts.append(part.text)
 
         if function_call is None:
-            yield {"type": "final", "reply": "".join(text_parts) or "Não consegui gerar uma resposta."}
+            reply = "".join(text_parts) or "Não consegui gerar uma resposta."
+            yield {"type": "final", "reply": with_attachment_warning(reply)}
             return
 
         contents.append(candidate.content)
@@ -285,7 +312,9 @@ def ask_isa_stream(
 
     yield {
         "type": "final",
-        "reply": "Cheguei no limite de passos tentando responder. Tente reformular a pergunta.",
+        "reply": with_attachment_warning(
+            "Cheguei no limite de passos tentando responder. Tente reformular a pergunta."
+        ),
     }
 
 
