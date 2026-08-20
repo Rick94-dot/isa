@@ -12,6 +12,7 @@ próprio (guardado num cookie de sessão assinado) e, a partir dele:
 """
 
 import os
+import base64
 import logging
 from datetime import datetime, timedelta
 
@@ -145,7 +146,7 @@ def build_system_prompt(persona: str) -> str:
     return BASE_SYSTEM_PROMPT
 
 
-def ask_isa(history: list[dict], persona: str = "") -> str:
+def ask_isa(history: list[dict], persona: str = "", attachments: list[dict] | None = None) -> str:
     contents = []
     for msg in history:
         if not msg.get("text"):
@@ -155,6 +156,18 @@ def ask_isa(history: list[dict], persona: str = "") -> str:
 
     if not contents:
         return "Não recebi nenhuma mensagem."
+
+    # Os anexos (imagem, PDF, etc.) da mensagem atual entram como partes
+    # extras na última fala do usuário, junto com o texto.
+    if attachments and contents[-1].role == "user":
+        for att in attachments:
+            try:
+                raw_bytes = base64.b64decode(att["data"])
+                contents[-1].parts.append(
+                    types.Part.from_bytes(data=raw_bytes, mime_type=att["mimeType"])
+                )
+            except Exception:
+                logger.exception(f"Não consegui processar o anexo: {att.get('name')}")
 
     generation_config = types.GenerateContentConfig(
         system_instruction=build_system_prompt(persona),
@@ -327,7 +340,11 @@ def get_conversation(client_id):
         "client_id": doc.get("client_id"),
         "title": doc.get("title") or "Nova conversa",
         "messages": [
-            {"role": m.get("role"), "text": m.get("text", "")}
+            {
+                "role": m.get("role"),
+                "text": m.get("text", ""),
+                "attachments": m.get("attachments", []),
+            }
             for m in doc.get("messages", [])
         ],
     })
@@ -339,9 +356,10 @@ def chat():
     data = request.get_json(force=True) or {}
     history = data.get("history", [])
     conversation_id = data.get("conversation_id")
+    attachments = data.get("attachments") or []
 
     try:
-        reply = ask_isa(history, persona=user.get("persona", ""))
+        reply = ask_isa(history, persona=user.get("persona", ""), attachments=attachments)
     except Exception as e:
         logger.exception("Erro ao falar com o Gemini")
         reply = f"Ocorreu um erro ao falar com o Gemini: {e}"
@@ -354,11 +372,20 @@ def chat():
 
         new_messages = []
         if last_user_msg:
-            new_messages.append({
+            user_msg_doc = {
                 "role": "user",
                 "text": last_user_msg["text"],
                 "created_at": now,
-            })
+            }
+            if attachments:
+                # Guardamos só o nome/tipo do anexo, não o arquivo inteiro,
+                # pra não pesar o banco — o conteúdo já foi processado pelo
+                # Gemini na hora, não precisa ficar salvo.
+                user_msg_doc["attachments"] = [
+                    {"name": a.get("name", ""), "mimeType": a.get("mimeType", "")}
+                    for a in attachments
+                ]
+            new_messages.append(user_msg_doc)
         new_messages.append({"role": "bot", "text": reply, "created_at": now})
 
         title = (last_user_msg["text"][:42] if last_user_msg else "Nova conversa")

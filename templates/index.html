@@ -1254,11 +1254,19 @@
 
     if (msg.attachments && msg.attachments.length){
       msg.attachments.forEach(att => {
-        const chip = document.createElement('div');
-        chip.className = 'attachment-chip';
-        chip.innerHTML = attachmentIcon(att.type) + ' ' + escapeHtml(att.name);
-        bubble.appendChild(document.createElement('br'));
-        bubble.appendChild(chip);
+        if (att.type === 'image' && att.dataUrl){
+          const img = document.createElement('img');
+          img.src = att.dataUrl;
+          img.alt = att.name;
+          img.style.cssText = 'display:block; max-width:220px; max-height:220px; border-radius:10px; margin-top:8px; object-fit:cover;';
+          bubble.appendChild(img);
+        } else {
+          const chip = document.createElement('div');
+          chip.className = 'attachment-chip';
+          chip.innerHTML = attachmentIcon(att.type) + ' ' + escapeHtml(att.name);
+          bubble.appendChild(document.createElement('br'));
+          bubble.appendChild(chip);
+        }
       });
     }
 
@@ -1350,11 +1358,16 @@
 
   sendBtn.addEventListener('click', sendMessage);
 
-  async function callBackend(history, conversationId){
+  async function callBackend(history, conversationId, attachments){
     const response = await fetch('/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ history, model: selectedModel, conversation_id: conversationId })
+      body: JSON.stringify({
+        history,
+        model: selectedModel,
+        conversation_id: conversationId,
+        attachments: attachments || []
+      })
     });
     if (!response.ok){
       const errText = await response.text();
@@ -1365,17 +1378,26 @@
   }
 
   async function sendMessage(){
-    const text = messageInput.value.trim();
-    if (!text && pendingAttachments.length === 0) return;
+    const typedText = messageInput.value.trim();
+    if (!typedText && pendingAttachments.length === 0) return;
 
     if (!getActive()) createConversation();
     const conv = getActive();
+
+    // Se só mandou anexo sem escrever nada, usa um prompt padrão — assim a
+    // mensagem aparece com texto no histórico e o Gemini sabe o que fazer.
+    const text = typedText || 'Analise os arquivos enviados.';
+    const attachmentsForRequest = pendingAttachments.map(att => ({
+      name: att.name,
+      mimeType: att.mimeType,
+      data: att.dataUrl.split(',')[1] // remove o prefixo "data:mime;base64,"
+    }));
 
     const userMsg = { role:'user', text, attachments: pendingAttachments.slice() };
     conv.messages.push(userMsg);
 
     if (!conv.title){
-      conv.title = (text || (pendingAttachments[0] && pendingAttachments[0].name) || 'Nova conversa').slice(0, 42);
+      conv.title = (typedText || (pendingAttachments[0] && pendingAttachments[0].name) || 'Nova conversa').slice(0, 42);
     }
 
     pendingAttachments = [];
@@ -1387,20 +1409,12 @@
     renderConversationList();
     renderChat();
 
-    // Anexos ainda não são lidos pela IA (transcrição/leitura de arquivo é um
-    // requisito futuro) — por enquanto só avisamos, sem chamar o backend.
-    if (!text){
-      conv.messages.push({ role:'bot', text: 'Recebi seu anexo! (a leitura de arquivos e áudio ainda não está conectada à IA)' });
-      renderChat();
-      return;
-    }
-
     showTyping();
     try {
       const history = conv.messages
         .filter(m => m.text)
         .map(m => ({ role: m.role, text: m.text }));
-      const reply = await callBackend(history, conv.id);
+      const reply = await callBackend(history, conv.id, attachmentsForRequest);
       hideTyping();
       conv.messages.push({ role:'bot', text: reply });
     } catch (err) {
@@ -1435,15 +1449,30 @@
   }
 
   // ---------- anexar arquivo ----------
+  const MAX_ATTACHMENT_MB = 10;
+
   attachBtn.addEventListener('click', () => fileInput.click());
   fileInput.addEventListener('change', () => {
     Array.from(fileInput.files).forEach(file => {
+      if (file.size > MAX_ATTACHMENT_MB * 1024 * 1024){
+        alert('"' + file.name + '" passa de ' + MAX_ATTACHMENT_MB + 'MB — escolha um arquivo menor.');
+        return;
+      }
       const type = file.type.startsWith('image/') ? 'image' : (file.type.startsWith('audio/') ? 'audio' : 'file');
-      pendingAttachments.push({ name:file.name, type, url:URL.createObjectURL(file) });
+      const reader = new FileReader();
+      reader.onload = () => {
+        pendingAttachments.push({
+          name: file.name,
+          type,
+          mimeType: file.type || 'application/octet-stream',
+          dataUrl: reader.result // "data:<mime>;base64,<...>"
+        });
+        renderPendingAttachments();
+        updateSendState();
+      };
+      reader.readAsDataURL(file);
     });
     fileInput.value = '';
-    renderPendingAttachments();
-    updateSendState();
   });
 
   function renderPendingAttachments(){
@@ -1451,7 +1480,17 @@
     pendingAttachments.forEach((att, idx) => {
       const chip = document.createElement('div');
       chip.className = 'pending-chip' + (att.recording ? ' recording' : '');
-      chip.innerHTML = attachmentIcon(att.type) + ' <span>' + escapeHtml(att.name) + '</span>';
+      if (att.type === 'image' && att.dataUrl){
+        const thumb = document.createElement('img');
+        thumb.src = att.dataUrl;
+        thumb.style.cssText = 'width:20px;height:20px;border-radius:5px;object-fit:cover;';
+        chip.appendChild(thumb);
+      } else {
+        chip.innerHTML = attachmentIcon(att.type);
+      }
+      const label = document.createElement('span');
+      label.textContent = att.name;
+      chip.appendChild(label);
       const removeBtn = document.createElement('button');
       removeBtn.innerHTML = '&#10005;';
       removeBtn.addEventListener('click', () => {
@@ -1474,10 +1513,18 @@
         mediaRecorder.ondataavailable = e => { if (e.data.size) recordedChunks.push(e.data); };
         mediaRecorder.onstop = () => {
           const blob = new Blob(recordedChunks, { type:'audio/webm' });
-          const url = URL.createObjectURL(blob);
-          pendingAttachments.push({ name:'Áudio gravado', type:'audio', url });
-          renderPendingAttachments();
-          updateSendState();
+          const reader = new FileReader();
+          reader.onload = () => {
+            pendingAttachments.push({
+              name: 'Áudio gravado.webm',
+              type: 'audio',
+              mimeType: 'audio/webm',
+              dataUrl: reader.result
+            });
+            renderPendingAttachments();
+            updateSendState();
+          };
+          reader.readAsDataURL(blob);
           stream.getTracks().forEach(t => t.stop());
         };
         mediaRecorder.start();
