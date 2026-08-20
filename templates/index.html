@@ -1060,7 +1060,7 @@
 
   // ---------- criar / trocar conversa ----------
   function createConversation(){
-    const conv = { id: Date.now().toString(), title: null, messages: [] };
+    const conv = { id: Date.now().toString(), title: null, messages: [], loaded: true };
     conversations.unshift(conv);
     activeId = conv.id;
     renderConversationList();
@@ -1068,11 +1068,26 @@
     messageInput.focus();
   }
 
-  function setActive(id){
+  async function setActive(id){
     activeId = id;
     renderConversationList();
-    renderChat();
     closeSidebarMobile();
+
+    const conv = getActive();
+    if (conv && !conv.loaded){
+      renderChat(); // mostra o estado de "carregando" enquanto busca
+      try {
+        const res = await fetch('/api/conversations/' + encodeURIComponent(id));
+        if (res.ok){
+          const data = await res.json();
+          conv.messages = (data.messages || []).map(m => ({ role: m.role, text: m.text }));
+        }
+      } catch (err) {
+        console.error('Não foi possível carregar a conversa:', err);
+      }
+      conv.loaded = true;
+    }
+    renderChat();
   }
 
   function getActive(){
@@ -1139,6 +1154,15 @@
 
   function renderChat(){
     const conv = getActive();
+
+    if (conv && !conv.loaded){
+      greetingWrap.style.display = 'none';
+      messagesEl.style.display = 'flex';
+      topbarTitle.textContent = conv.title || 'Conversa';
+      messagesEl.innerHTML = '<div style="padding:60px 20px; text-align:center; color:var(--text-soft); font-size:13.5px;">Carregando conversa...</div>';
+      return;
+    }
+
     if (!conv || conv.messages.length === 0){
       greetingWrap.style.display = 'flex';
       messagesEl.style.display = 'none';
@@ -1597,7 +1621,8 @@
         conversations = convData.conversations.map(c => ({
           id: c.client_id,
           title: c.title,
-          messages: (c.messages || []).map(m => ({ role: m.role, text: m.text }))
+          messages: [],
+          loaded: false // mensagens só são buscadas quando a pessoa clica na conversa
         }));
       }
     } catch (err) {

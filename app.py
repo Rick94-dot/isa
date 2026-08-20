@@ -287,22 +287,50 @@ def update_profile():
     return jsonify({"user": serialize_user(updated)})
 
 
+MAX_CONVERSATIONS_IN_SIDEBAR = 20
+
+
 @app.route("/api/conversations")
 def list_conversations():
+    """Lista só o essencial (id + título) das conversas mais recentes —
+    as mensagens de cada uma só são buscadas quando a pessoa clica nela."""
     user = get_or_create_user()
-    docs = conversations_col.find({"user_id": user["_id"]}).sort("updated_at", DESCENDING)
+    docs = (
+        conversations_col.find(
+            {"user_id": user["_id"]},
+            {"messages": 0},  # projeção: não traz o array de mensagens aqui
+        )
+        .sort("updated_at", DESCENDING)
+        .limit(MAX_CONVERSATIONS_IN_SIDEBAR)
+    )
 
-    result = []
-    for d in docs:
-        result.append({
+    result = [
+        {
             "client_id": d.get("client_id"),
             "title": d.get("title") or "Nova conversa",
-            "messages": [
-                {"role": m.get("role"), "text": m.get("text", "")}
-                for m in d.get("messages", [])
-            ],
-        })
+        }
+        for d in docs
+    ]
     return jsonify({"conversations": result})
+
+
+@app.route("/api/conversations/<client_id>")
+def get_conversation(client_id):
+    """Busca as mensagens de uma conversa específica sob demanda."""
+    user = get_or_create_user()
+    doc = conversations_col.find_one({"client_id": client_id, "user_id": user["_id"]})
+
+    if not doc:
+        return jsonify({"error": "Conversa não encontrada."}), 404
+
+    return jsonify({
+        "client_id": doc.get("client_id"),
+        "title": doc.get("title") or "Nova conversa",
+        "messages": [
+            {"role": m.get("role"), "text": m.get("text", "")}
+            for m in doc.get("messages", [])
+        ],
+    })
 
 
 @app.route("/api/chat", methods=["POST"])
